@@ -37,7 +37,6 @@ struct erow {
 struct editor_config {
     int cx, cy;
     char *filename;
-    int rx;
     int rowoff;
     int coloff;
     int screenrows;
@@ -228,22 +227,17 @@ void ab_free(struct abuf *ab) {
 }
 
 void scroll_screen() {
-    E.rx = 0;
-    if (E.cy < E.numrows) {
-        E.rx = row_cx_to_rx(&E.row[E.cy], E.cx);
-    }
-
-    if (E.cy > E.rowoff) {
+    if (E.cy < E.rowoff) {
         E.rowoff = E.cy;
     }
     if (E.cy >= E.rowoff + E.screenrows) {
         E.rowoff = E.cy - E.screenrows + 1;
     }
-    if (E.rx < E.coloff) {
-        E.coloff = E.rx;
+    if (E.cx < E.coloff) {
+        E.coloff = E.cx;
     }
-    if (E.rx >= E.coloff + E.screencols) {
-        E.coloff = E.rx - E.screencols + 1;
+    if (E.cx >= E.coloff + E.screencols) {
+        E.coloff = E.cy - E.screencols + 1;
     }
 }
 
@@ -325,7 +319,7 @@ void refresh_screen() {
     draw_message_bar(&ab);
 
     snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, 
-                                              (E.rx - E.coloff) + 1);
+                                              (E.cx - E.coloff) + 1);
     
     ab_append(&ab, buf, strlen(buf));
     ab_append(&ab, "\x1b[?25h", 6);
@@ -406,7 +400,6 @@ void press_key() {
 void init_editor() {
     E.cx = 0;
     E.cy = 0;
-    E.rx = 0;
     E.rowoff = 0;
     E.coloff = 0;
     E.numrows = 0;
