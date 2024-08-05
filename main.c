@@ -20,8 +20,31 @@
 #include <time.h>
 #include <unistd.h>
 
+// Utility
+int int_len(int n) {
+    if (n >= 1000000000) return 10;
+    if (n >= 100000000)  return 9;
+    if (n >= 10000000)   return 8;
+    if (n >= 1000000)    return 7;
+    if (n >= 100000)     return 6;
+    if (n >= 10000)      return 5;
+    if (n >= 1000)       return 4;
+    if (n >= 100)        return 3;
+    if (n >= 10)         return 2;
+    return 1;
+}
+
 enum editor_key {
     BACKSPACE = 127,
+    ARROW_LEFT = 1000,
+    ARROW_RIGHT,
+    ARROW_UP,
+    ARROW_DOWN,
+    DEL_KEY,
+    HOME_KEY,
+    END_KEY,
+    PAGE_UP,
+    PAGE_DOWN
 };
 
 // data
@@ -155,10 +178,12 @@ void update_row(erow *row) {
     row->rsize = idx;
 }
 
-void append_row(char *s, size_t len) {
-    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+void einsert_row(int at, char *s, size_t len) {
+    if (at < 0 || at > E.numrows) return;
 
-    int at = E.numrows;
+    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+    memmove(&E.row[at + 1], &E.row[at], sizeof(erow) * (E.numrows - at));
+
     E.row[at].size = len;
     E.row[at].chars = malloc(len + 1);
     memcpy(E.row[at].chars, s, len);
@@ -171,6 +196,18 @@ void append_row(char *s, size_t len) {
     E.numrows++;
 }
 
+void efree_row(erow *row) {
+    free(row->render);
+    free(row->chars);
+}
+
+void edelete_row(int at) {
+    if (at < 0 || at >= E.numrows) return;
+    efree_row(&E.row[at]);
+    memmove(&E.row[at], &E.row[at + 1], sizeof(erow) * (E.numrows - at - 1));
+    E.numrows--;
+}
+
 void erow_insert_char(erow *row, int at, int c) {
     if (at < 0 || at > row->size) at = row->size;
     row->chars = realloc(row->chars, row->size + 2);
@@ -180,12 +217,57 @@ void erow_insert_char(erow *row, int at, int c) {
     update_row(row);
 }
 
+void row_delete_char(erow *row, int at) {
+    if (at < 0 || at >= row->size) return;
+    memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
+    row->size--;
+    update_row(row);
+}
+
 void einsert_char(int c) {
     if (E.cy == E.numrows) {
-        append_row("", 0);
+        einsert_row(E.numrows, "", 0);
     }
     erow_insert_char(&E.row[E.cy], E.cx, c);
     E.cx++;
+}
+
+void einsert_newline() {
+    if (E.cx == 0) {
+        einsert_row(E.cy, "", 0);
+    } else {
+        erow *row = &E.row[E.cy];
+        einsert_row(E.cy + 1, &row->chars[E.cx], row->size - E.cx);
+        row = &E.row[E.cy];
+        row->size = E.cx;
+        row->chars[row->size] = '\0';
+        update_row(row);
+    }
+    E.cy++;
+    E.cx = 0;
+}
+
+void erow_append_string(erow *row, char *s, size_t len) {
+    row->chars = realloc(row->chars, row->size + len + 1);
+    memcpy(&row->chars[row->size], s, len);
+    row->size += len;
+    row->chars[row->size] = '\0';
+    update_row(row);
+}
+
+void delete_char() {
+    if (E.cx == 0 && E.cy == 0) return;
+
+    erow *row = &E.row[E.cy];
+    if (E.cx > 0) {
+        row_delete_char(row, E.cx - 1);
+        E.cx--;
+    } else {
+        E.cx = E.row[E.cy - 1].size;
+        erow_append_string(&E.row[E.cy - 1], row->chars, row->size);
+        edelete_row(E.cy);
+        E.cy--;
+    }
 }
 
 void open_file(char *filename) {
@@ -202,7 +284,7 @@ void open_file(char *filename) {
         while (linelen > 0 && (line[linelen - 1] == '\n' ||
                             line[linelen - 1] == '\r'))
         linelen--;
-        append_row(line, linelen);
+        einsert_row(E.numrows, line, linelen);
     }
     free(line);
     fclose(fp);
@@ -274,36 +356,39 @@ void draw_rows(struct abuf *ab) {
 
 void draw_status_bar(struct abuf *ab) {
     ab_append(ab, "\x1b[7m", 4);
-    char status[80], rstatus[80];
-    int len = snprintf(status, sizeof(status), "%.20s - %d lines", 
-        E.filename ? E.filename : "[No Name]", E.numrows);
-    int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d",
-        E.cy + 1, E.numrows);
+    char *status = (char*) malloc(E.screencols);
+    char *filename = E.filename ? E.filename : "[No Name]";
 
-    if (len < E.screencols) {
-        len = E.screencols;
-    }
-    ab_append(ab, status, len);
-    while (len < E.screencols) {
-        if (E.screencols - len == rlen) {
-            ab_append(ab, rstatus, rlen);
-            break;
+    size_t i;
+    for (i = 0; i < strlen(filename); i++) {
+        if (i < 20) {
+            status[i] = filename[i];
         } else {
-            ab_append(ab, " ", 1);
-            len++;
+            break;
         }
     }
+    if (i < E.screencols) {
+        status[i++] = ' ';
+    }
+    int cols = int_len(E.cx) + int_len(E.cy) + 1;
+    for (; i < E.screencols - cols; i++) {
+        status[i] = ' ';
+    }
+    char buf[cols+1];
+    snprintf(buf, sizeof(buf), "%d:%d", E.cx, E.cy);
+    for (int j = 0; j <= cols; j++) {
+        status[i++] = buf[j];
+    }
+    ab_append(ab, status, strlen(status));
     ab_append(ab, "\x1b[m", 3);
     ab_append(ab, "\r\n", 2);
 }
 
 void draw_message_bar(struct abuf *ab) {
     ab_append(ab, "\x1b[K", 3);
-    int msglen = strlen(E.statusmsg);
+    size_t msglen = strlen(E.statusmsg);
     if (msglen > E.screencols) msglen = E.screencols;
-    if (msglen && time(NULL) - E.statusmsg_time < 5) {
-        ab_append(ab, E.statusmsg, msglen);
-    }
+    ab_append(ab, E.statusmsg, msglen);
 }
 
 void refresh_screen() {
@@ -383,12 +468,22 @@ void press_key() {
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
             break;
-
+        case '\r':
+            einsert_newline();
+            break;
         case 'w':
         case 's':
         case 'a':
         case 'd':
             move_cursor(c);
+            break;
+        case BACKSPACE:
+        case CTRL_KEY('h'):
+        case DEL_KEY:
+            if (c == DEL_KEY) {
+                move_cursor('d');
+            }
+            delete_char();
             break;
         default:
             einsert_char(c);
