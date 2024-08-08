@@ -13,12 +13,6 @@ typedef struct finder {
     int size;
 } finder;
 
-void ffree(finder *f) {
-    
-    f->curr = 0;
-    f->size = 0;
-}
-
 void fclean(finder *f) {
     free(f->idx); 
     f->idx = malloc(sizeof(position));
@@ -33,6 +27,9 @@ void finit(finder *f) {
 }
 
 int ffind(finder *f, char *s, char *query, int row_num) {
+    if (strlen(query) == 0) {
+        return 0;
+    }
     int *x = (int *) malloc(sizeof(int));
     int count = 0;
     char *ptr = s;

@@ -418,30 +418,6 @@ void efind_callback(char *query, int key) {
     }
 }
 
-int *efind_in_row(char *s, char *query, int *n) {
-    int index = 0;
-    char *ptr = s;
-    int count = 0;
-    int l = strlen(query);
-
-    int *indexes = malloc(sizeof(int));
-    int updated = 0;
-
-    while ((ptr = strstr(ptr, query)) != NULL) {
-        updated++;
-        indexes = realloc(indexes, sizeof(int) * (count + 1));
-        indexes[count] = ptr - s;
-        count++;
-        ptr += l - 1;
-    }
-
-    if (!updated) {
-        return NULL;
-    }
-    *n = count;
-    return indexes;
-}
-
 void efind() {
     int saved_cx = E.cx;
     int saved_cy = E.cy;
@@ -777,6 +753,12 @@ void process_keypress() {
     quit_times = QUIT_TIMES;
 }
 
+void handlesigwinch(int unused __attribute__((unused))) {
+    if (get_window_size(&E.screenrows, &E.screencols) == -1) die("get_window_size");
+    if (E.cx > E.screencols) E.cy = E.screencols - 1;
+    refresh_screen();
+}
+
 void init_editor() {
     E.cx = 0;
     E.cy = 0;
@@ -792,6 +774,7 @@ void init_editor() {
 
     if (get_window_size(&E.screenrows, &E.screencols) == -1) die("get_window_size");
     E.screenrows -= 2;
+    signal(SIGWINCH, handlesigwinch);
 }
 
 int main(int argc, char *argv[]) {
