@@ -19,6 +19,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "finder.h"
+
 #define CTRL_KEY(k) ((k) & 0x1f)
 
 typedef struct editor_row {
@@ -58,6 +60,8 @@ typedef struct editor {
 } editor;
 
 struct editor E;
+
+struct finder F;
 
 void set_status_message(const char *fmt, ...);
 void refresh_screen();
@@ -360,7 +364,7 @@ void eopen(char *filename) {
     E.dirty = 0;
 }
 
-void efind_callback(char *query, int key) {
+void find_callback(char *query, int key) {
     static int last_match = -1;
     static int direction = 1;
 
@@ -396,6 +400,46 @@ void efind_callback(char *query, int key) {
             break;
         }
     }
+}
+
+void efind_callback(char *query, int key) {
+    if (key == '\r' || key == '\x1b') {
+        fclean(&F);
+    } else if (key == ARROW_RIGHT || key == ARROW_DOWN) {
+        fnext(&F, &E.cx, &E.cy);
+    } else if (key == ARROW_LEFT || key == ARROW_UP) {
+        fprev(&F, &E.cx, &E.cy);
+    } else {
+        fclean(&F);
+        for (int i = 0; i < E.numrows; i++) {
+            ffind(&F, E.rows[i].chars, query, i);
+        }
+        fnext(&F, &E.cx, &E.cy);
+    }
+}
+
+int *efind_in_row(char *s, char *query, int *n) {
+    int index = 0;
+    char *ptr = s;
+    int count = 0;
+    int l = strlen(query);
+
+    int *indexes = malloc(sizeof(int));
+    int updated = 0;
+
+    while ((ptr = strstr(ptr, query)) != NULL) {
+        updated++;
+        indexes = realloc(indexes, sizeof(int) * (count + 1));
+        indexes[count] = ptr - s;
+        count++;
+        ptr += l - 1;
+    }
+
+    if (!updated) {
+        return NULL;
+    }
+    *n = count;
+    return indexes;
 }
 
 void efind() {

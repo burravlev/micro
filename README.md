@@ -1,0 +1,1 @@
+Simple terminal text editor written in C
