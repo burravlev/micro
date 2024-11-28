@@ -2,3 +2,5 @@
 .vscode/
 
 bin/micro
+
+.DS_Store
