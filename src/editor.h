@@ -23,6 +23,7 @@
 #include <unistd.h>
 
 #include "finder.h"
+#include "syntax.h"
 #include "../lib/term.h"
 
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -233,26 +234,36 @@ void draw_rows(Buffer *ab) {
     for (y = 0; y < E.screenrows; y++) {
         int filerow = y + E.rowoff;
         if (filerow >= E.numrows) {
-        if (E.numrows == 0 && y == E.screenrows / 3) {
-            char welcome[80];
-            int welcomelen = snprintf(welcome, sizeof(welcome),
-            "MICRO editor -- version %s", VERSION);
-            if (welcomelen > E.screencols) welcomelen = E.screencols;
-            int padding = (E.screencols - welcomelen) / 2;
-            if (padding) {
+            if (E.numrows == 0 && y == E.screenrows / 3) {
+                char welcome[80];
+                int welcomelen = snprintf(welcome, sizeof(welcome),
+                "MICRO editor -- version %s", VERSION);
+                if (welcomelen > E.screencols) welcomelen = E.screencols;
+                int padding = (E.screencols - welcomelen) / 2;
+                if (padding) {
+                    b_append(ab, "~", 1);
+                padding--;
+                }
+                while (padding--) b_append(ab, " ", 1);
+                b_append(ab, welcome, welcomelen);
+            } else {
                 b_append(ab, "~", 1);
-            padding--;
             }
-            while (padding--) b_append(ab, " ", 1);
-            b_append(ab, welcome, welcomelen);
-        } else {
-            b_append(ab, "~", 1);
-        }
         } else {
             int len = E.rows[filerow].size - E.coloff;
             if (len < 0) len = 0;
             if (len > E.screencols) len = E.screencols;
-            b_append(ab, &E.rows[filerow].chars[E.coloff], len);
+            char *c = &E.rows[filerow].chars[E.coloff];
+            color(&C, c, E.numrows);
+            color_by_indexes(&C, F.indexes, F.found);
+            for (int j = 0; j < len; j++) {
+                int color = C.rows[filerow].colors[j];
+                char buf[16];
+                int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+                b_append(ab, buf, clen);
+                b_append(ab, &c[j], 1);
+            }
+            b_append(ab, "\x1b[39m", 5);
         }
         b_append(ab, "\x1b[K", 3);
         b_append(ab, "\r\n", 2);
@@ -399,17 +410,18 @@ void move_cursor(int key) {
 }
 
 void find_callback(char *c, int i) {
-    static int count = 0;
+    static int y;
+    static int x;
 
-    static size_t index = 0;
-    static size_t found = 0;
-    if (i == ARROW_RIGHT || i == ARROW_DOWN) {
+    static size_t index;
+    static size_t found;
+    if ((i == ARROW_RIGHT || i == ARROW_DOWN) && found != 0) {
         if (index < found - 1) {
             index++;
         } else {
             index = 0;
         }
-    } else if (i == ARROW_LEFT || i == ARROW_UP) {
+    } else if ((i == ARROW_LEFT || i == ARROW_UP) && found != 0) {
         if (index > 0) {
             index--;
         } else {
@@ -420,8 +432,12 @@ void find_callback(char *c, int i) {
         for (size_t i = 0; i < E.numrows; i++) {
             find_in_row(&F, i, E.rows[i].chars, c);
             found = F.found;
+            if (found == 0) {
+                index = 0;
+            }
         }
     }
+
     Index found_index = F.indexes[index];
     E.cy = found_index.row;
     E.cx = found_index.i;
