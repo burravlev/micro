@@ -23,7 +23,6 @@
 #include <unistd.h>
 
 #include "finder.h"
-#include "syntax.h"
 #include "../lib/term.h"
 
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -31,7 +30,35 @@
 typedef struct EditorRow {
     int size;
     char *chars;
+    unsigned char *hl;
 } EditorRow;
+
+
+enum Highlight {
+    HL_NORMAL = 0,
+    HL_STRING,
+    HL_NUMBER,
+    HL_MATCH,
+};
+
+#define HL_HIGHLIGHT_NUMBERS (1 << 0)
+#define HL_HIGHLIGHT_STRINGS (1 << 1)
+
+struct Syntax {
+    char *filetype;
+    char **filematch;
+    int flags;
+} Syntax;
+
+char *C_HL_extensions[] = {".c", ".h", ".cpp", NULL};
+
+struct Syntax HLDB[] = {
+    {
+        "c",
+        C_HL_extensions,
+        HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
+    },
+};
 
 typedef struct Editor {
     int cx, cy;
@@ -45,14 +72,106 @@ typedef struct Editor {
     char *filename;
     char statusmsg[80];
     time_t statusmsg_time;
+    struct Syntax *syntax;
     struct termios orig_termios;
 } Editor;
+
+#define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
 
 struct Editor E;
 
 void set_status_message(const char *fmt, ...);
 void refresh_screen();
 char *eprompt(char *prompt, void (*callback)(char *, int));
+void reset_syntax();
+
+int is_separator(int c) {
+    return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
+}
+
+void update_syntax(EditorRow *row) {
+    row->hl = realloc(row->hl, row->size);
+    memset(row->hl, HL_NORMAL, row->size);
+
+    if (E.syntax == NULL) return;
+
+    int prev_sep = 1;
+    int in_string = 0;
+
+    int i = 0;
+    while (i < row->size) {
+        char c = row->chars[i];
+        unsigned char prev_hl = (i > 0) ? row->hl[i - 1] : HL_NORMAL;
+
+        if (E.syntax->flags && HL_HIGHLIGHT_NUMBERS) {
+            if (in_string) {
+                row->hl[i] = HL_STRING;
+                if (c == '\\' && i + 1 < row->size) {
+                    row->hl[i + 1] = HL_STRING;
+                    i += 2;
+                    continue;
+                }
+                if (c == in_string) in_string = 0;
+                i++;
+                prev_sep = 1;
+                continue;
+            } else {
+                if (c == '"' || c == '\'') {
+                    in_string = c;
+                    row->hl[i] = HL_STRING;
+                    i++;
+                    continue;
+                }
+            }
+        }
+
+        if (E.syntax->flags && HL_HIGHLIGHT_NUMBERS) {
+            if ((isdigit(c) && (prev_sep || prev_hl == HL_NUMBER)) ||
+                (c == '.' && prev_hl == HL_NUMBER)) {
+                row->hl[i] = HL_NUMBER;
+                i++;
+                prev_sep = 0;
+                continue;
+            }
+        }
+        prev_sep = is_separator(c);
+        i++;
+    }
+}
+
+int syntax_to_color(int hl) {
+    switch (hl) {
+        case HL_STRING: return 35;
+        case HL_NUMBER: return 31;
+        case HL_MATCH: return 43;
+        default: return 37;
+    }
+}
+
+void select_syntax_hightlight() {
+    E.syntax = NULL;
+    if (E.filename == NULL) return;
+
+    char *ext = strrchr(E.filename, '.');
+
+    for (size_t j = 0; j < HLDB_ENTRIES; j++) {
+        struct Syntax *s = &HLDB[j];
+        size_t i = 0;
+        while (s->filematch[i]) {
+            int is_ext = (s->filematch[i][0] == '.');
+            if ((is_ext && ext && !strcmp(ext, s->filematch[i])) ||
+                (!is_ext && strstr(E.filename, s->filematch[i]))) {
+                E.syntax = s;
+
+                for (int filerow = 0; filerow < E.numrows; filerow++) {
+                    update_syntax(&E.rows[filerow]);
+                }
+                return;
+            }
+            i++;
+        }
+    }
+}
 
 void append_row(int at, char *s, size_t len) {
     if (at < 0 || at > E.numrows) return;
@@ -62,8 +181,11 @@ void append_row(int at, char *s, size_t len) {
 
     E.rows[at].size = len;
     E.rows[at].chars = (char*) malloc(len + 1);
+    E.rows[at].hl = NULL;
     memcpy(E.rows[at].chars, s, len);
     E.rows[at].chars[len] = '\0';
+
+    update_syntax(&E.rows[at]);
 
     E.numrows++;
     E.dirty++;
@@ -72,6 +194,7 @@ void append_row(int at, char *s, size_t len) {
 void free_row(EditorRow *row) {
     if (row->chars != NULL) {
         free(row->chars);
+        free(row->hl);
     }
 }
 
@@ -169,6 +292,8 @@ void eopen(char *filename) {
     free(E.filename);
     E.filename = strdup(filename);
 
+    select_syntax_hightlight();
+
     FILE *fp = fopen(filename, "r");
     if (!fp) die("fopen");
     char *line = NULL;
@@ -192,6 +317,7 @@ void esave() {
             set_status_message("Save aborted");
             return;
         }
+        select_syntax_hightlight();
     }
 
     int len;
@@ -253,17 +379,31 @@ void draw_rows(Buffer *ab) {
             int len = E.rows[filerow].size - E.coloff;
             if (len < 0) len = 0;
             if (len > E.screencols) len = E.screencols;
+
             char *c = &E.rows[filerow].chars[E.coloff];
-            color(&C, c, E.numrows);
-            color_by_indexes(&C, F.indexes, F.found);
+            unsigned char *hl = &E.rows[filerow].hl[E.coloff];
+            int current_color = -1;
+
             for (int j = 0; j < len; j++) {
-                int color = C.rows[filerow].colors[j];
-                char buf[16];
-                int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
-                b_append(ab, buf, clen);
+                if (hl[j] == HL_NORMAL) {
+                    if (current_color != -1) {
+                        b_append(ab, "\x1b[39m", 5);
+                        b_append(ab, "\x1b[49m", 5);
+                        current_color = -1;
+                    }
+                } else {
+                    int color = syntax_to_color(hl[j]);
+                    if (color != current_color) {
+                        current_color = color;
+                        char buf[16];
+                        int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+                        b_append(ab, buf, clen);
+                    }
+                }
                 b_append(ab, &c[j], 1);
             }
             b_append(ab, "\x1b[39m", 5);
+            b_append(ab, "\x1b[49m", 5);
         }
         b_append(ab, "\x1b[K", 3);
         b_append(ab, "\r\n", 2);
@@ -350,12 +490,14 @@ char *eprompt(char *prompt, void (*callback)(char*, int)) {
         } else if (c == '\x1b') {
             set_status_message("");
             if (callback) callback(buf, c);
+            reset_syntax();
             free(buf);
             return NULL;
         } else if (c == '\r') {
             if (buflen != 0) {
                 set_status_message("");
                 if (callback) callback(buf, c);
+                reset_syntax();
                 return buf;
             }
         } else if (!iscntrl(c) && c < 128) {
@@ -409,12 +551,19 @@ void move_cursor(int key) {
     }
 }
 
+void reset_syntax() {
+    for (size_t i = 0; i < E.numrows; i++) {
+        update_syntax(&E.rows[i]);
+    }
+}
+
 void find_callback(char *c, int i) {
     static int y;
     static int x;
 
     static size_t index;
     static size_t found;
+
     if ((i == ARROW_RIGHT || i == ARROW_DOWN) && found != 0) {
         if (index < found - 1) {
             index++;
@@ -438,9 +587,17 @@ void find_callback(char *c, int i) {
         }
     }
 
+    reset_syntax();
+
     Index found_index = F.indexes[index];
     E.cy = found_index.row;
     E.cx = found_index.i;
+
+    for (size_t i = 0; i < F.found; i++) {
+        Index index = F.indexes[i];
+        EditorRow *row = &E.rows[index.row];
+        memset(&row->hl[index.i], HL_MATCH, strlen(c));
+    }
 }
 
 void efind() {
@@ -552,6 +709,7 @@ void init_editor() {
     E.filename = NULL;
     E.statusmsg[0] = '\0';
     E.statusmsg_time = 0;
+    E.syntax = NULL;
 
     update_window_size();    
     signal(SIGWINCH, handlesigwinch);
