@@ -37,6 +37,9 @@ typedef struct EditorRow {
 enum Highlight {
     HL_NORMAL = 0,
     HL_STRING,
+    HL_COMMENT,
+    HL_KEYWORD1,
+    HL_KEYWORD2,
     HL_NUMBER,
     HL_MATCH,
 };
@@ -47,15 +50,26 @@ enum Highlight {
 struct Syntax {
     char *filetype;
     char **filematch;
+    char **keywords;
+    char *singleline_comment_start;
     int flags;
 } Syntax;
 
 char *C_HL_extensions[] = {".c", ".h", ".cpp", NULL};
+char *C_HL_keywords[] = {
+    "switch", "if", "while", "for", "break", "continue", "return", "else",
+    "struct", "union", "typedef", "static", "enum", "class", "case", "#include", 
+
+    "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
+    "void|", NULL
+};
 
 struct Syntax HLDB[] = {
     {
         "c",
         C_HL_extensions,
+        C_HL_keywords,
+        "//",
         HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
     },
 };
@@ -95,54 +109,77 @@ void update_syntax(EditorRow *row) {
 
     if (E.syntax == NULL) return;
 
+    char *scs = E.syntax->singleline_comment_start;
+    int scs_len = scs ? strlen(scs) : 0;
+
+    char **keywords = E.syntax->keywords;
+
     int prev_sep = 1;
     int in_string = 0;
 
-    int i = 0;
-    while (i < row->size) {
+    for (size_t i = 0; i < row->size; i++) {
         char c = row->chars[i];
-        unsigned char prev_hl = (i > 0) ? row->hl[i - 1] : HL_NORMAL;
 
-        if (E.syntax->flags && HL_HIGHLIGHT_NUMBERS) {
-            if (in_string) {
-                row->hl[i] = HL_STRING;
-                if (c == '\\' && i + 1 < row->size) {
-                    row->hl[i + 1] = HL_STRING;
-                    i += 2;
-                    continue;
-                }
-                if (c == in_string) in_string = 0;
-                i++;
-                prev_sep = 1;
-                continue;
-            } else {
-                if (c == '"' || c == '\'') {
-                    in_string = c;
-                    row->hl[i] = HL_STRING;
-                    i++;
-                    continue;
-                }
+        if (scs_len && !in_string) {
+            if (!strncmp(&row->chars[i], scs, scs_len)) {
+                memset(&row->hl[i], HL_COMMENT, row->size);
             }
         }
 
-        if (E.syntax->flags && HL_HIGHLIGHT_NUMBERS) {
-            if ((isdigit(c) && (prev_sep || prev_hl == HL_NUMBER)) ||
-                (c == '.' && prev_hl == HL_NUMBER)) {
-                row->hl[i] = HL_NUMBER;
+        if (in_string) {
+            row->hl[i] = HL_STRING;
+            if (c == '\\' && i + 1 < row->size) {
+                row->hl[i + 1] = HL_STRING;
                 i++;
+                continue;
+            }
+            if (c == in_string) in_string = 0;
+            prev_sep = 1;
+            continue;
+        } else if (c == '"' || c == '\'') {
+            in_string = c;
+            row->hl[i] = HL_STRING;
+            continue;
+        }
+        if (isdigit(c) || (!prev_sep && row->hl[i - 1] == HL_NUMBER && c == '.')) {
+            row->hl[i] = HL_NUMBER;
+            prev_sep = c == '.' ? 1 : 0;
+            continue;
+        } else if (is_separator(c)) {
+            prev_sep = 1;
+            continue;
+        } 
+
+        if (prev_sep) {
+            int j;
+            for (j = 0; keywords[j]; j++) {
+                int klen = strlen(keywords[j]);
+                int kw2 = keywords[j][klen - 1] == '|';
+                if (kw2) klen--;
+
+                if (!strncmp(&row->chars[i], keywords[j], klen) &&
+                    is_separator(row->chars[i + klen])) {
+                    memset(&row->hl[i], kw2 ? HL_KEYWORD2 : HL_KEYWORD1, klen);
+                    i += klen;
+                    break;
+                }
+            }
+            if (keywords[j] != NULL) {
                 prev_sep = 0;
                 continue;
             }
         }
         prev_sep = is_separator(c);
-        i++;
     }
 }
 
 int syntax_to_color(int hl) {
     switch (hl) {
+        case HL_COMMENT: return 36;
         case HL_STRING: return 35;
         case HL_NUMBER: return 31;
+        case HL_KEYWORD1: return 33;
+        case HL_KEYWORD2: return 32;
         case HL_MATCH: return 43;
         default: return 37;
     }
@@ -220,6 +257,7 @@ void insert_char(int c) {
         append_row(E.numrows, "", 0);
     }
     row_insert_char(&E.rows[E.cy], E.cx, c);
+    update_syntax(&E.rows[E.cy]);
     E.cx++;
 }
 
@@ -259,6 +297,7 @@ void delete_char() {
     EditorRow *row = &E.rows[E.cy];
     if (E.cx > 0) {
         row_delete_char(row, E.cx - 1);
+        update_syntax(row);
         E.cx--;
     } else {
         E.cx = E.rows[E.cy - 1].size;
