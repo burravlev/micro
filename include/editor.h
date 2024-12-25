@@ -22,8 +22,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "finder.h"
-#include "../lib/term.h"
+#include <finder.h>
+#include <term.h>
 
 #define CTRL_KEY(k) ((k) & 0x1f)
 
