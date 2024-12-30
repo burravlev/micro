@@ -45,21 +45,11 @@ typedef struct Syntax {
     int flags;
 } Syntax;
 
-char *C_HL_extensions[] = {".c", ".h", ".cpp", NULL};
-char *C_HL_keywords[] = {
-    "switch", "if", "while", "for", "break", "continue", "return", "else",
-    "struct", "union", "typedef", "static", "enum", "class", "case", "#include", 
-    "#define", "#ifndef", "endif",
-
-    "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
-    "void|", "NULL|", NULL
-};
-
 struct Syntax HLDB[] = {
     {
         "c",
         C_HL_extensions,
-        C_HL_keywords,
+        keywords1,
         "//",
         HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
     },
@@ -103,8 +93,6 @@ void update_syntax(EditorRow *row) {
     char *scs = E.syntax->singleline_comment_start;
     int scs_len = scs ? strlen(scs) : 0;
 
-    char **keywords = E.syntax->keywords;
-
     int prev_sep = 1;
     int in_string = 0;
 
@@ -143,23 +131,35 @@ void update_syntax(EditorRow *row) {
         } else if (is_separator(c)) {
             prev_sep = 1;
             continue;
-        } 
+        }
 
         if (prev_sep) {
             int j;
-            for (j = 0; keywords[j]; j++) {
-                int klen = strlen(keywords[j]);
-                int kw2 = keywords[j][klen - 1] == '|';
-                if (kw2) klen--;
+            for (j = 0; keywords1[j]; j++) {
+                int klen = strlen(keywords1[j]);
 
-                if (!strncmp(&row->chars[i], keywords[j], klen) &&
+                if (!strncmp(&row->chars[i], keywords1[j], klen) &&
                     is_separator(row->chars[i + klen])) {
-                    memset(&row->hl[i], kw2 ? HL_KEYWORD2 : HL_KEYWORD1, klen);
+                    memset(&row->hl[i], HL_KEYWORD1, klen);
                     i += klen;
                     break;
                 }
             }
-            if (keywords[j] != NULL) {
+            if (keywords1[j] != NULL) {
+                prev_sep = 0;
+                continue;
+            }
+            for (j = 0; keywords2[j]; j++) {
+                int klen = strlen(keywords2[j]);
+
+                if (!strncmp(&row->chars[i], keywords2[j], klen) &&
+                    is_separator(row->chars[i + klen])) {
+                    memset(&row->hl[i], HL_KEYWORD2, klen);
+                    i += klen;
+                    break;
+                }
+            }
+            if (keywords2[j] != NULL) {
                 prev_sep = 0;
                 continue;
             }

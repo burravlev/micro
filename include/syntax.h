@@ -21,4 +21,18 @@ enum Highlight {
     HL_BRACKET_2,
 };
 
+char *C_HL_extensions[] = {".c", ".h", ".cpp", NULL};
+char *keywords1[] = {
+    "switch", "if", "while", "for", "break", "continue", "return", "else",
+    "struct", "union", "typedef", "static", "enum", "class", "case", "#include", 
+    "#define", "#ifndef", "#endif", NULL
+};
+
+char *keywords2[] = {
+    "int", "long", "double", "float", "char", "unsigned", "signed",
+    "void", "NULL", NULL
+};
+
+int is_string = 0;
+
 #endif
