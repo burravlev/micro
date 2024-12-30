@@ -8,3 +8,5 @@ bin/micro
 a.out
 
 micro
+
+obj/

@@ -22,6 +22,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <syntax.h>
 #include <finder.h>
 #include <term.h>
 
@@ -33,21 +34,10 @@ typedef struct EditorRow {
     unsigned char *hl;
 } EditorRow;
 
-
-enum Highlight {
-    HL_NORMAL = 0,
-    HL_STRING,
-    HL_COMMENT,
-    HL_KEYWORD1,
-    HL_KEYWORD2,
-    HL_NUMBER,
-    HL_MATCH,
-};
-
 #define HL_HIGHLIGHT_NUMBERS (1 << 0)
 #define HL_HIGHLIGHT_STRINGS (1 << 1)
 
-struct Syntax {
+typedef struct Syntax {
     char *filetype;
     char **filematch;
     char **keywords;
@@ -59,9 +49,10 @@ char *C_HL_extensions[] = {".c", ".h", ".cpp", NULL};
 char *C_HL_keywords[] = {
     "switch", "if", "while", "for", "break", "continue", "return", "else",
     "struct", "union", "typedef", "static", "enum", "class", "case", "#include", 
+    "#define", "#ifndef", "endif",
 
     "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
-    "void|", NULL
+    "void|", "NULL|", NULL
 };
 
 struct Syntax HLDB[] = {
@@ -100,7 +91,7 @@ char *eprompt(char *prompt, void (*callback)(char *, int));
 void reset_syntax();
 
 int is_separator(int c) {
-    return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
+    return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];(){}[]", c) != NULL;
 }
 
 void update_syntax(EditorRow *row) {
@@ -140,6 +131,10 @@ void update_syntax(EditorRow *row) {
             in_string = c;
             row->hl[i] = HL_STRING;
             continue;
+        } else if (c == '{' || c == '}' || c == '(' || c == ')') {
+            row->hl[i] = HL_BRACKET;
+        } else if (c == '[' || c == ']') {
+            row->hl[i] = HL_BRACKET_2;
         }
         if (isdigit(c) || (!prev_sep && row->hl[i - 1] == HL_NUMBER && c == '.')) {
             row->hl[i] = HL_NUMBER;
@@ -175,13 +170,15 @@ void update_syntax(EditorRow *row) {
 
 int syntax_to_color(int hl) {
     switch (hl) {
-        case HL_COMMENT: return 36;
-        case HL_STRING: return 35;
-        case HL_NUMBER: return 31;
-        case HL_KEYWORD1: return 33;
-        case HL_KEYWORD2: return 32;
-        case HL_MATCH: return 43;
-        default: return 37;
+        case HL_COMMENT: return color_to_ansi(121, 189, 148);
+        case HL_STRING: return color_to_ansi(186, 120, 58);
+        case HL_BRACKET: return color_to_ansi(255, 255, 0);
+        case HL_BRACKET_2: return color_to_ansi(50, 120, 180);
+        case HL_KEYWORD1: return color_to_ansi(255, 145, 200);
+        case HL_KEYWORD2: return color_to_ansi(50, 120, 180);
+        case HL_MATCH: return color_to_ansi(255, 255, 200);
+        case HL_NUMBER: return color_to_ansi(140, 200, 100);
+        default: return color_to_ansi(255, 255, 255);
     }
 }
 
@@ -435,7 +432,7 @@ void draw_rows(Buffer *ab) {
                     if (color != current_color) {
                         current_color = color;
                         char buf[16];
-                        int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+                        int clen = snprintf(buf, sizeof(buf), "\x1b[38;5;%dm", color);
                         b_append(ab, buf, clen);
                     }
                 }
