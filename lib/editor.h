@@ -22,10 +22,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <syntax.h>
-#include <finder.h>
-#include <row.h>
-#include <term.h>
+#include "syntax.h"
+#include "finder.h"
+#include "row.h"
+#include "term.h"
 
 #define CTRL_KEY(k) ((k) & 0x1f)
 

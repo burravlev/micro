@@ -7,7 +7,8 @@
 #include <stdbool.h>
 #include <ctype.h>
 #include <string.h>
-#include <color.h>
+
+#include "color.h"
 
 enum Highlight {
     HL_NORMAL = 0,
