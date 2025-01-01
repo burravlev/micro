@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 
 int color_to_ansi(size_t r, size_t g, size_t b) {
     if (r < 0) r = 0; if (r > 255) r = 255;
@@ -14,13 +15,6 @@ int color_to_ansi(size_t r, size_t g, size_t b) {
     } else {
         return 16 + (36 * (r / 51)) + (6 * (g / 51)) + (b / 51);
     }
-}
-
-char* color_to_string(size_t r, size_t g, size_t b) {
-    int color = color_to_ansi(r, g, b);
-    char buf[256];
-    snprintf(buf, 256, "\x1b[48;5;%dm", color);
-    return buf;
 }
 
 #endif

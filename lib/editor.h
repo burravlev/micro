@@ -24,15 +24,10 @@
 
 #include <syntax.h>
 #include <finder.h>
+#include <row.h>
 #include <term.h>
 
 #define CTRL_KEY(k) ((k) & 0x1f)
-
-typedef struct EditorRow {
-    int size;
-    char *chars;
-    unsigned char *hl;
-} EditorRow;
 
 #define HL_HIGHLIGHT_NUMBERS (1 << 0)
 #define HL_HIGHLIGHT_STRINGS (1 << 1)
@@ -62,7 +57,7 @@ typedef struct Editor {
     int screenrows;
     int screencols;
     int numrows;
-    EditorRow *rows;
+    Row *rows;
     int dirty;
     char *filename;
     char statusmsg[80];
@@ -84,8 +79,8 @@ int is_separator(int c) {
     return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];(){}[]", c) != NULL;
 }
 
-void update_syntax(EditorRow *row) {
-    row->hl = realloc(row->hl, row->size);
+void update_syntax(Row *row) {
+    row->hl = (unsigned char*) realloc(row->hl, row->size);
     memset(row->hl, HL_NORMAL, row->size);
 
     if (E.syntax == NULL) return;
@@ -96,7 +91,7 @@ void update_syntax(EditorRow *row) {
     int prev_sep = 1;
     int in_string = 0;
 
-    for (size_t i = 0; i < row->size; i++) {
+    for (int i = 0; i < row->size; i++) {
         char c = row->chars[i];
 
         if (scs_len && !in_string) {
@@ -210,8 +205,8 @@ void select_syntax_hightlight() {
 void append_row(int at, char *s, size_t len) {
     if (at < 0 || at > E.numrows) return;
 
-    E.rows = (EditorRow*) realloc(E.rows, sizeof(EditorRow) * (E.numrows + 1));
-    memmove(&E.rows[at + 1], &E.rows[at], sizeof(EditorRow) * (E.numrows - at));
+    E.rows = (Row*) realloc(E.rows, sizeof(Row) * (E.numrows + 1));
+    memmove(&E.rows[at + 1], &E.rows[at], sizeof(Row) * (E.numrows - at));
 
     E.rows[at].size = len;
     E.rows[at].chars = (char*) malloc(len + 1);
@@ -225,27 +220,11 @@ void append_row(int at, char *s, size_t len) {
     E.dirty++;
 }
 
-void free_row(EditorRow *row) {
-    if (row->chars != NULL) {
-        free(row->chars);
-        free(row->hl);
-    }
-}
-
 void delete_row(int at) {
     if (at < 0 || at >= E.numrows) return;
     free_row(&E.rows[at]);
-    memmove(&E.rows[at], &E.rows[at + 1], sizeof(EditorRow) * (E.numrows - at - 1));
+    memmove(&E.rows[at], &E.rows[at + 1], sizeof(Row) * (E.numrows - at - 1));
     E.numrows--;
-    E.dirty++;
-}
-
-void row_insert_char(EditorRow *row, int at, int c) {
-    if (at < 0 || at > row->size) at = row->size;
-    row->chars = (char*) realloc(row->chars, row->size + 2);
-    memmove(&row->chars[at + 1], &row->chars[at], row->size - at + 1);
-    row->size++;
-    row->chars[at] = c;
     E.dirty++;
 }
 
@@ -256,13 +235,14 @@ void insert_char(int c) {
     row_insert_char(&E.rows[E.cy], E.cx, c);
     update_syntax(&E.rows[E.cy]);
     E.cx++;
+    E.dirty++;
 }
 
 void insert_new_line() {
     if (E.cx == 0) {
         append_row(E.cy, "", 0);
     } else {
-        EditorRow *row = &E.rows[E.cy];
+        Row *row = &E.rows[E.cy];
         append_row(E.cy + 1, &row->chars[E.cx], row->size - E.cx);
         row = &E.rows[E.cy];
         row->size = E.cx;
@@ -272,14 +252,14 @@ void insert_new_line() {
     E.cx = 0;
 }
 
-void row_delete_char(EditorRow *row, int at) {
+void row_delete_char(Row *row, int at) {
     if (at < 0 || at >= row->size) return;
     memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
     row->size--;
     E.dirty++;
 }
 
-void row_append_string(EditorRow *row, char *s, size_t len) {
+void row_append_string(Row *row, char *s, size_t len) {
     row->chars = (char*) realloc(row->chars, row->size + len + 1);
     memcpy(&row->chars[row->size], s, len);
     row->size += len;
@@ -291,7 +271,7 @@ void delete_char() {
     if (E.cy == E.numrows) return;  
     if (E.cx == 0 && E.cy == 0) return;
 
-    EditorRow *row = &E.rows[E.cy];
+    Row *row = &E.rows[E.cy];
     if (E.cx > 0) {
         row_delete_char(row, E.cx - 1);
         update_syntax(row);
@@ -549,7 +529,7 @@ char *eprompt(char *prompt, void (*callback)(char*, int)) {
 }
 
 void move_cursor(int key) {
-    EditorRow *row = (E.cy >= E.numrows) ? NULL : &E.rows[E.cy];
+    Row *row = (E.cy >= E.numrows) ? NULL : &E.rows[E.cy];
 
     switch (key) {
         case ARROW_LEFT:
@@ -588,15 +568,12 @@ void move_cursor(int key) {
 }
 
 void reset_syntax() {
-    for (size_t i = 0; i < E.numrows; i++) {
+    for (int i = 0; i < E.numrows; i++) {
         update_syntax(&E.rows[i]);
     }
 }
 
 void find_callback(char *c, int i) {
-    static int y;
-    static int x;
-
     static size_t index;
     static size_t found;
 
@@ -614,7 +591,7 @@ void find_callback(char *c, int i) {
         }
     } else {
         clear_finder(&F);
-        for (size_t i = 0; i < E.numrows; i++) {
+        for (int i = 0; i < E.numrows; i++) {
             find_in_row(&F, i, E.rows[i].chars, c);
             found = F.found;
             if (found == 0) {
@@ -631,7 +608,7 @@ void find_callback(char *c, int i) {
 
     for (size_t i = 0; i < F.found; i++) {
         Index index = F.indexes[i];
-        EditorRow *row = &E.rows[index.row];
+        Row *row = &E.rows[index.row];
         memset(&row->hl[index.i], HL_MATCH, strlen(c));
     }
 }
