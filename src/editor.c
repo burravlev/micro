@@ -203,21 +203,6 @@ void insert_new_line() {
     E.cx = 0;
 }
 
-void row_delete_char(Row *row, int at) {
-    if (at < 0 || at >= row->size) return;
-    memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
-    row->size--;
-    E.dirty++;
-}
-
-void row_append_string(Row *row, char *s, size_t len) {
-    row->chars = (char*) realloc(row->chars, row->size + len + 1);
-    memcpy(&row->chars[row->size], s, len);
-    row->size += len;
-    row->chars[row->size] = '\0';
-    E.dirty++;
-}
-
 void delete_char() {
     if (E.cy == E.numrows) return;  
     if (E.cx == 0 && E.cy == 0) return;
@@ -225,11 +210,13 @@ void delete_char() {
     Row *row = &E.rows[E.cy];
     if (E.cx > 0) {
         row_delete_char(row, E.cx - 1);
+        E.dirty++;
         update_syntax(row);
         E.cx--;
     } else {
         E.cx = E.rows[E.cy - 1].size;
         row_append_string(&E.rows[E.cy - 1], row->chars, row->size);
+        E.dirty++;
         delete_row(E.cy);
         E.cy--;
     }

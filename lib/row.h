@@ -11,7 +11,8 @@ typedef struct Row {
 } Row;
 
 void free_row(Row* row);
-
 void row_insert_char(Row* row, int at, int c);
+void row_delete_char(Row *row, int at);
+void row_append_string(Row *row, char *s, size_t len);
 
 #endif
