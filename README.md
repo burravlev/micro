@@ -1,16 +1,12 @@
 # Micro
 ---
-Micro is a small text editor
+Micro is a small text editor written in pure C
 
 ## Build from sources
 ```bash
-cmake .
-```
+# Run build scripts
+cmake . && make
 
-```bash
-make
-````
-
-```bash
+# Run editor
 ./micro
 ```
