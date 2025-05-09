@@ -2,8 +2,12 @@
 .vscode/
 
 bin/
+CMakeCache.txt
+cmake_install.cmake
+CMakeFiles/
 
 .DS_Store
+Makefile
 
 a.out
 

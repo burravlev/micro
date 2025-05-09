@@ -1,6 +1,7 @@
-#include <row.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "../lib/row.h"
 
 void free_row(Row* row) {
     if (row == NULL) return;

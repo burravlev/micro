@@ -1,20 +1,8 @@
-#include <termios.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/ioctl.h>
-#include <errno.h>
+#include "../lib/terminal.h"
 
-#define ESC_CHAR '\x1b'
-#define STR_END '\0'
-#define CLEAR_SCREEN "\x1b[2J"
-#define HIDE_CURSOR "\x1b[?25l"
-#define SHOW_CURSOR "\x1b[?25h"
-
-#define CTRL_KEY(k) ((k) & 0x1f)
-
-struct termios instance;
+void term_write(const char *s, size_t size) {
+    write(STDIN_FILENO, s, size);
+}
 
 void die(const char* s) {
     write(STDIN_FILENO, CLEAR_SCREEN, strlen(CLEAR_SCREEN));
@@ -45,46 +33,6 @@ void enable_raw_mode() {
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw)) {
         die("tcsetattr");
     }
-}
-
-typedef struct Buffer {
-    char *buffer;
-    int length;
-} Buffer;
-
-#define ABUF_INIT {NULL, 0}
-
-void b_append(Buffer *buf, const char *s, int length) {
-    if (buf == NULL) return;
-    char *new_buf = (char*) realloc(buf->buffer, buf->length + length);
-
-    if (new_buf == NULL) return;
-    memcpy(&new_buf[buf->length], s, length);
-    buf->buffer = new_buf;
-    buf->length += length;
-}
-
-static void b_free(Buffer *buf) {
-    if (buf != NULL && buf->buffer != NULL) {
-        free(buf->buffer);
-    }
-}
-
-void b_clear_screen(Buffer *buf) {
-    b_append(buf, CLEAR_SCREEN, strlen(CLEAR_SCREEN));
-}
-
-void b_hide_cursor(Buffer *buf) {
-    b_append(buf, HIDE_CURSOR, strlen(HIDE_CURSOR));
-}
-
-void b_show_cursor(Buffer *buf) {
-    b_append(buf, SHOW_CURSOR, strlen(SHOW_CURSOR));
-}
-
-void b_flush(Buffer *buf) {
-    write(STDIN_FILENO, buf->buffer, buf->length);
-    b_free(buf);
 }
 
 #define REQUIRE_CURSOR_POSITION "\x1b[6n"
@@ -126,19 +74,6 @@ int get_window_size(int *rows, int *cols) {
 void clear_screen(void) {
     write(STDOUT_FILENO, CLEAR_SCREEN, strlen(CLEAR_SCREEN));
 }
-
-enum EditorKey {
-    BACKSPACE = 127,
-    ARROW_LEFT = 1000,
-    ARROW_RIGHT,
-    ARROW_UP,
-    ARROW_DOWN,
-    DEL_KEY,
-    HOME_KEY,
-    END_KEY,
-    PAGE_UP,
-    PAGE_DOWN
-};
 
 int read_key() {
     int nread;
